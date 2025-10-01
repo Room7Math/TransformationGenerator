@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transformations</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            /* Stack the title and the rest vertically */
+            align-items: center;
+            /* Center content horizontally */
+            gap: 20px;
+        }
+
+        canvas {
+            border: 0x solid black;
+            background-color: #ffffff;
+        }
+
+        form {
+            line-height: 0.8;
+        }
+
+        #controls {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #coordinates {
+            display: table;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+#output {
+    white-space: normal; 
+    word-wrap: break-word;
+    width: 220px;   /* fixed width, matches canvas */
+    display: inline-block; /* prevents table cell expansion */
+}
+
+
+        #valid {
+            white-space: normal;
+            /* Allows the text to wrap */
+            word-wrap: break-word;
+            /* Ensures long words break correctly */
+            max-width: 420px;
+            /* Limit the width to the grid's width */
+        }
+
+        footer {
+            position: fixed;
+            left: 20px;
+            bottom: 60px;
+            height: 30px;
+            width: 100%;
+
+        }
+
+        input {
+            width: 50px;
+        }
+
+        #slopeIntercept {
+            width: 110px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Rigid Transformations</h1> <!-- Added title -->
+    <table>
+        <tr>
+            <td width="300"><canvas id="gridCanvas" width="220" height="220" ></canvas></td>
+            <td>
+                <div id="controls">
+                    <button id="reflectYAxis">Reflection about Y-Axis</button>
+                    <button id="reflectXAxis">Reflection about X-Axis</button>
+                    <button id="rotateCCWButton">Rotate 90° CCW</button>
+                    <button id="rotateCWButton">Rotate 90° CW</button>
+                    <button id="rotate180Button">Rotate 180°</button>
+                    <form id="translation">
+                        <p>Translation</p>
+                        x: <input type="text" name="xMove" value=0 width="30"><br>
+                        y: <input type="text" name="yMove" value=0> <button id="translate">Translate</button><br>
+                    </form>
+
+                    <form id="centerOfRotation">
+                        <p>Center of Rotation</p>
+                        x: <input type="text" name="xCoord" value=0><br>
+                        y: <input type="text" name="yCoord" value=0><br>
+                    </form>
+                    <form id="lineOfReflection">
+                        <p>Line of Reflection</p>
+                        Equation <input id="slopeIntercept" type="text" name="lineOfReflection"
+                            value="y = 1 * x + 0"><br>
+                    </form>
+                    <button id="reflection">Reflection across line</button>
+                    <button id="undo">Remove Last Point</button>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <p id="output">Coordinates: None</p>
+            </td>
+            <td></td>
+        </tr>
+    </table>
+
+    <script>
+        const canvas = document.getElementById('gridCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = "10px Arial";
+        const gridSize = 20;
+        const range = 10;
+        const points = [];
+        const validPoints = [];
+        let coordins = "";
+        let xCenter = 0;
+        let yCenter = 0;
+        const pointMaxCount = 26; // points A-Z allowed
+
+
+        // Helper function to get the translation from the form
+        function getTranslationMoves() {
+            const xMove = parseFloat(document.getElementsByName('xMove')[0].value);
+            const yMove = parseFloat(document.getElementsByName('yMove')[0].value);
+            return { x: xMove, y: yMove };
+        }
+        // Helper function to get the center of rotation from the form
+        function getCenterOfRotation() {
+            const xCenter = parseFloat(document.getElementsByName('xCoord')[0].value);
+            const yCenter = parseFloat(document.getElementsByName('yCoord')[0].value);
+            return { x: xCenter, y: yCenter };
+        }
+
+        function getFormattedCoordinates(points) {
+            // Create a Set to track unique points (as strings for easy comparison)
+            const uniquePointsSet = new Set();
+            const uniquePoints = [];
+
+            points.forEach(point => {
+                const pointKey = `${point.x},${point.y}`; // Create a string key for the point
+                if (!uniquePointsSet.has(pointKey)) {
+                    uniquePointsSet.add(pointKey); // Mark the point as seen
+                    uniquePoints.push(point); // Add to the unique points list
+                }
+            });
+
+            return uniquePoints.map((point, index) => {
+                const label = String.fromCharCode(65 + index); // Convert index to A, B, C, etc.
+                return `${label} (${point.x}, ${point.y})`;
+            }).join(', ');
+        }
+        // Helper function to format the output of the coordinates
+        // function getFormattedCoordinates(points) {
+        //     const uniquePoints = (points.length > 1 &&
+        //         points[0].x === points[points.length - 1].x &&
+        //         points[0].y === points[points.length - 1].y)
+        //         ? points.slice(0, -1)  // Exclude the last point if it's a duplicate
+        //         : points;
+
+        //     return uniquePoints.map((point, index) => {
+        //         const label = String.fromCharCode(65 + index); // Convert index to A, B, C, etc.
+        //         return `${label} (${point.x}, ${point.y})`;
+        //     }).join(', ');
+        // }
+
+        function drawGrid() {
+            const canvasSize = canvas.width;
+            const center = canvasSize / 2;
+
+            ctx.clearRect(0, 0, canvasSize, canvasSize);
+            ctx.strokeStyle = '#111';
+            ctx.lineWidth = .5;
+
+            for (let i = -range; i <= range; i++) {
+                const x = center + i * gridSize;
+                ctx.beginPath();
+                ctx.moveTo(x, 10);
+                ctx.lineTo(x, canvasSize-10);
+                ctx.stroke();
+                ctx.closePath();
+
+                const y = center - i * gridSize;
+                ctx.beginPath();
+                ctx.moveTo(10, y);
+                ctx.lineTo(canvasSize-10, y);
+                ctx.stroke();
+                ctx.closePath();
+            }
+
+    // Draw axes
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = 2.5;
+
+    // X-axis
+    ctx.beginPath();
+    ctx.moveTo(0, center);
+    ctx.lineTo(canvasSize, center);
+    ctx.stroke();
+
+    // Y-axis
+    ctx.beginPath();
+    ctx.moveTo(center, 0);
+    ctx.lineTo(center, canvasSize);
+    ctx.stroke();
+
+
+
+      //      ctx.closePath();
+
+    // --- Add arrowheads OUTSIDE the grid ---
+    ctx.fillStyle = "black";
+    const offset = 0; // how far outside the grid the arrows sit
+
+  // X-axis arrow (right end →)
+    ctx.beginPath();
+    ctx.moveTo(canvasSize + offset, center);
+    ctx.lineTo(canvasSize - 6, center - 6);
+    ctx.lineTo(canvasSize - 6, center + 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Y-axis arrow (top end ↑)
+    ctx.beginPath();
+    ctx.moveTo(center, -offset);
+    ctx.lineTo(center - 6, 6);
+    ctx.lineTo(center + 6, 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // X-axis arrow (left end ←)
+    ctx.beginPath();
+    ctx.moveTo(-offset, center);
+    ctx.lineTo(6, center - 6);
+    ctx.lineTo(6, center + 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Y-axis arrow (bottom end ↓)
+    ctx.beginPath();
+    ctx.moveTo(center, canvasSize + offset);
+    ctx.lineTo(center - 6, canvasSize - 6);
+    ctx.lineTo(center + 6, canvasSize - 6);
+    ctx.closePath();
+    ctx.fill();
+
+        }
+
+        function drawLines() {
+            if (points.length < 1) return;
+
+            let charCode = 65; // ASCII code for 'A'
+            ctx.strokeStyle = 'blue';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            const start = getCanvasCoordinates(points[0].x, points[0].y);
+            ctx.moveTo(start.x, start.y);
+
+            // Draw the starting vertex label
+            ctx.fillStyle = 'black';
+            let label = String.fromCharCode(charCode);
+            ctx.fillText(label, start.x + 10, start.y + 10);
+            charCode++;
+
+            for (let i = 1; i < points.length; i++) {
+                const coord = getCanvasCoordinates(points[i].x, points[i].y);
+                ctx.lineTo(coord.x, coord.y);
+
+                // Draw vertex label
+                if (points[0].x != points[i].x || points[0].y != points[i].y) {
+                    label = String.fromCharCode(charCode);
+                    label = '';
+                    ctx.fillStyle = 'black';
+                    ctx.fillText(label, coord.x + 10, coord.y + 10);
+                    charCode++;
+                }
+
+            }
+
+            ctx.stroke(); // Draw the blue lines
+
+            // Draw red dots at each vertex
+            ctx.fillStyle = 'red';
+            for (let i = 0; i < points.length; i++) {
+                const coord = getCanvasCoordinates(points[i].x, points[i].y);
+                ctx.beginPath();
+                ctx.arc(coord.x, coord.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+
+
+
+        /*function drawLines() {
+            if (points.length < 2) return;
+
+            let charCode = 65;
+            ctx.strokeStyle = 'blue';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const start = getCanvasCoordinates(points[0].x, points[0].y);
+            ctx.moveTo(start.x, start.y);
+            let label = String.fromCharCode(charCode);
+            ctx.fillText(label, start.x + 5, start.y + 5)
+
+            charCode++;
+            for (let i = 1; i < points.length; i++) {
+                const coord = getCanvasCoordinates(points[i].x, points[i].y);
+                ctx.lineTo(coord.x, coord.y);
+                if (points[0].x != points[i].x || points[0].y != points[i].y) {
+
+                    label = String.fromCharCode(charCode);
+
+                    ctx.fillText(label, coord.x + 10, coord.y + 10)
+                    charCode++;
+                    //pointCounter--;
+                }
+
+            }
+
+            ctx.stroke();
+            ctx.closePath();
+        }// */
+
+        function updateDisplay() {
+            // Update output with labeled coordinates
+            const formattedCoords = getFormattedCoordinates(points);
+            document.getElementById('output').textContent = `Coordinates: ${formattedCoords}`;
+
+            drawGrid();
+            drawLines();
+        }
+
+        // makes the undo function work
+        function removeLastPoint() {
+            points.pop();
+            updateDisplay();
+        }
+
+        function getGridCoordinates(x, y) {
+            const canvasCenter = canvas.width / 2;
+            const gridX = Math.round((x - canvasCenter) / gridSize);
+            const gridY = Math.round((canvasCenter - y) / gridSize);
+            return { x: gridX, y: gridY };
+        }
+
+        function getCanvasCoordinates(gridX, gridY) {
+            const canvasCenter = canvas.width / 2;
+            const canvasX = canvasCenter + gridX * gridSize;
+            const canvasY = canvasCenter - gridY * gridSize;
+            return { x: canvasX, y: canvasY };
+        }
+
+        // Rotate points 90 degrees counterclockwise
+        function rotatePointsCCW() {
+            const center = getCenterOfRotation();
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                const translatedX = x - center.x;
+                const translatedY = y - center.y;
+                const rotatedX = -translatedY + center.x;
+                const rotatedY = translatedX + center.y;
+                points[i] = { x: rotatedX, y: rotatedY };
+            }
+
+            // Generate output excluding the last duplicate point if it exists
+            const outputPoints = points.length > 1 && points[0].x === points[points.length - 1].x && points[0].y === points[points.length - 1].y
+                ? points.slice(0, -1) // Exclude the last point
+                : points;
+
+            updateDisplay();
+        }
+
+        // Rotate points 90 degrees clockwise
+        function rotatePointsCW() {
+            const center = getCenterOfRotation();
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                const translatedX = x - center.x;
+                const translatedY = y - center.y;
+                const rotatedX = translatedY + center.x;
+                const rotatedY = -translatedX + center.y;
+                points[i] = { x: rotatedX, y: rotatedY };
+            }
+            // Generate output excluding the last duplicate point if it exists
+            const outputPoints = points.length > 1 && points[0].x === points[points.length - 1].x && points[0].y === points[points.length - 1].y
+                ? points.slice(0, -1) // Exclude the last point
+                : points;
+
+            updateDisplay();
+        }
+
+        function translate() {
+            const moves = getTranslationMoves();
+
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                points[i] = { x: x + moves.x, y: y + moves.y };
+                if (i < points.length - 1)
+                    coordins = coordins + "(" + points[i].x + "," + points[i].y + "), ";
+            }
+
+            updateDisplay();
+
+        }
+
+        function reflectYAxis() {
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                points[i] = { x: -x, y: y };
+                if (i < points.length - 1)
+                    coordins = coordins + "(" + points[i].x + "," + points[i].y + "), ";
+            }
+
+            updateDisplay();
+
+        }
+        function reflectXAxis() {
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                points[i] = { x: x, y: -y };
+                if (i < points.length - 1)
+                    coordins = coordins + "(" + points[i].x + "," + points[i].y + "), ";
+            }
+
+            updateDisplay();
+        }
+
+        // Rotate points 180 degrees
+        function rotatePoints180() {
+            const center = getCenterOfRotation();
+            coordins = "";
+            for (let i = 0; i < points.length; i++) {
+                const { x, y } = points[i];
+                const translatedX = x - center.x;
+                const translatedY = y - center.y;
+                const rotatedX = -translatedX + center.x;
+                const rotatedY = -translatedY + center.y;
+                points[i] = { x: rotatedX, y: rotatedY };
+            }
+            // Generate output excluding the last duplicate point if it exists
+            const outputPoints = points.length > 1 && points[0].x === points[points.length - 1].x && points[0].y === points[points.length - 1].y
+                ? points.slice(0, -1) // Exclude the last point
+                : points;
+
+            updateDisplay();
+
+        }
+
+        function reflectAcrossLine() {
+            const lineInput = document.getElementsByName('lineOfReflection')[0].value;
+
+            const slopeInterceptMatch = lineInput.match(/^y\s*=\s*([\d.-]+)\s*\*\s*x\s*\+\s*([\d.-]+)$/);
+            const verticalLineMatch = lineInput.match(/^x\s*=\s*([\d.-]+)$/);
+
+            if (slopeInterceptMatch) {
+                const m = parseFloat(slopeInterceptMatch[1]);
+                const b = parseFloat(slopeInterceptMatch[2]);
+
+                coordins = "";
+                for (let i = 0; i < points.length; i++) {
+                    const { x: x1, y: y1 } = points[i];
+                    const d = (x1 + (y1 - b) * m) / (1 + m ** 2);
+                    const x2 = 2 * d - x1;
+                    const y2 = 2 * d * m - y1 + 2 * b;
+
+                    points[i] = { x: x2, y: y2 };
+                }
+
+                //drawReflectionLine(m, b);
+            } else if (verticalLineMatch) {
+                const c = parseFloat(verticalLineMatch[1]);
+
+                coordins = "";
+                for (let i = 0; i < points.length; i++) {
+                    const { x: x1, y: y1 } = points[i];
+                    const x2 = 2 * c - x1;
+                    const y2 = y1;
+
+                    points[i] = { x: x2, y: y2 };
+                }
+
+            } else {
+                alert('Please enter a valid line equation in the form y = m * x + b or x = c');
+                return;
+            }
+
+            const outputPoints = points.length > 1 && points[0].x === points[points.length - 1].x && points[0].y === points[points.length - 1].y
+                ? points.slice(0, -1)
+                : points;
+
+            updateDisplay();
+
+        }
+
+        // When mouse leaves canvas, red dot and coordinates are no longer displayed
+        canvas.addEventListener('mouseleave', function (event) {
+            // Your code to handle the mouse leaving the canvas
+            updateDisplay();
+        });
+
+        // Handle canvas mouse move for snapping cursor and displaying coordinates
+        canvas.addEventListener('mousemove', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = event.clientX - rect.left;
+            const canvasY = event.clientY - rect.top;
+            const gridCoords = getGridCoordinates(canvasX, canvasY);
+            const snappedCanvasCoords = getCanvasCoordinates(gridCoords.x, gridCoords.y);
+
+            // Clear and redraw the grid
+            updateDisplay();
+
+            if (points.length < pointMaxCount) {
+                // Draw a snapping indicator
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                ctx.beginPath();
+                ctx.arc(snappedCanvasCoords.x, snappedCanvasCoords.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Display the grid coordinates near the cursor
+                ctx.fillStyle = 'red';
+                ctx.font = '14px Arial';
+
+                ctx.fillText(`(${gridCoords.x}, ${gridCoords.y})`, snappedCanvasCoords.x + 10, snappedCanvasCoords.y - 10);
+
+            }
+
+        });
+
+        // Handle canvas click
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = event.clientX - rect.left;
+            const canvasY = event.clientY - rect.top;
+            const gridCoords = getGridCoordinates(canvasX, canvasY);
+
+            if (points.length < pointMaxCount) { // Limit # of points to less than pointMaxCount
+                // Only store integer values within the range
+                if (
+                    Number.isInteger(gridCoords.x) &&
+                    Number.isInteger(gridCoords.y) &&
+                    Math.abs(gridCoords.x) <= range &&
+                    Math.abs(gridCoords.y) <= range
+                ) {
+                    points.push(gridCoords);
+
+                    // // Always draw the new point and label it
+                    // const newPoint = getCanvasCoordinates(gridCoords.x, gridCoords.y);
+                    // ctx.fillStyle = 'red';
+                    // ctx.beginPath();
+                    // ctx.arc(newPoint.x, newPoint.y, 5, 0, Math.PI * 2); // Red dot
+                    // ctx.fill();
+                    // ctx.closePath();
+
+                    // // Label the point
+                    // const label = String.fromCharCode(65 + points.length - 1); // 'A', 'B', etc.
+                    // ctx.fillStyle = 'black';
+                    // ctx.fillText(label, newPoint.x + 5, newPoint.y + 5);
+
+                    // Redraw grid
+                    //drawGrid();
+                    //updateDisplay();
+                    // Redraw existing lines (if any)
+                    if (points.length > 1) {
+                        ;//drawLines();
+                    }
+                    // // Update coordinates output
+                    // const formattedCoords = points.map((point, index) => {
+                    //     const label = String.fromCharCode(65 + index); // 'A', 'B', 'C', etc.
+                    //     return `${label} (${point.x}, ${point.y})`;
+                    // }).join(', ');
+
+                    // document.getElementById('output').textContent = `Coordinates: ${formattedCoords}`;
+                }
+                updateDisplay();
+            }
+        });
+
+
+
+
+        // Add event listeners for rotation buttons
+        document.getElementById('translate').addEventListener('click', (event) => {
+            event.preventDefault(); // Prevent the form from submitting
+            translate();
+        });
+        document.getElementById('reflectYAxis').addEventListener('click', reflectYAxis);
+        document.getElementById('reflectXAxis').addEventListener('click', reflectXAxis);
+        document.getElementById('rotateCCWButton').addEventListener('click', rotatePointsCCW);
+        document.getElementById('rotateCWButton').addEventListener('click', rotatePointsCW);
+        document.getElementById('rotate180Button').addEventListener('click', rotatePoints180);
+        document.getElementById('reflection').addEventListener('click', reflectAcrossLine);
+        // Add event listeners for undo buttons
+        document.getElementById('undo').addEventListener('click', (event) => {
+            event.preventDefault(); // Prevent the form from submitting
+            removeLastPoint();
+        });
+        // Initial grid drawing
+        drawGrid();
+    </script>
+
+    <footer id=footer>
+        <hr>
+        <p>Author: Jin Young Chang<br>
+            chang_j@auhsd.us<br>
+            ©: 2025</p>
+    </footer>
+</body>
+
+</html>
